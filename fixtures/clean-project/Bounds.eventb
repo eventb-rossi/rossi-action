@@ -1,0 +1,8 @@
+CONTEXT Bounds
+CONSTANTS
+    limit
+AXIOMS
+    @axm1 limit ∈ ℕ
+    @axm2 limit > 0
+END
+

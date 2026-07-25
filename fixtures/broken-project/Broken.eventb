@@ -1,0 +1,7 @@
+MACHINE Broken
+VARIABLES
+    count
+INVARIANTS
+    @inv1 count ∈ ℕ
+EVENTS
+END
