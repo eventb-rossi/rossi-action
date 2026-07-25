@@ -1,0 +1,4 @@
+# Every checkout is LF, on every platform. Windows runners otherwise check out
+# CRLF, which breaks the shell scripts outright and makes `rossi fmt --check`
+# report the bundled fixtures as unformatted.
+* text=auto eol=lf

@@ -1,0 +1,148 @@
+name: Rossi Event-B Validator
+# The Marketplace caps this at 125 characters; the repository description
+# carries the longer wording.
+description: >-
+  Check Event-B models with rossi: validate, format check, static build —
+  inline annotations and SARIF
+author: eventb-rossi
+
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  path:
+    description: >-
+      Models to check: files, unzipped project directories, or Rodin .zip
+      archives. Space-separated; globs are expanded by the action.
+    required: false
+    default: "."
+  version:
+    description: >-
+      rossi version to install, without the leading `v`. Defaults to the latest
+      release. rossi 0.1.8 or newer is required.
+    required: false
+    default: ""
+  rossi-path:
+    description: >-
+      Use an existing rossi binary instead of downloading one. Set this on a
+      self-hosted runner that already has rossi, or to test an unreleased build.
+      It must be rossi 0.1.8 or newer.
+    required: false
+    default: ""
+  commands:
+    description: >-
+      Comma-separated subcommands to run, in order: validate, fmt-check, build.
+    required: false
+    default: "validate"
+  deny-warnings:
+    description: >-
+      Fail on advisory lints (EB011, EB012, EB014, EB023) as well as errors.
+      Reported severities are unchanged; only the gate hardens.
+    required: false
+    default: "false"
+  annotations:
+    description: Emit inline ::error / ::warning annotations for each finding.
+    required: false
+    default: "true"
+  sarif:
+    description: >-
+      Produce a SARIF report (always exactly one run). Requires `validate` in
+      `commands`.
+    required: false
+    default: "false"
+  sarif-file:
+    description: Where to write the SARIF report, relative to `working-directory`.
+    required: false
+    default: "rossi.sarif"
+  category:
+    description: >-
+      Analysis category for the SARIF run. A repository uploading more than one
+      rossi analysis must give each its own category — code scanning rejects an
+      upload whose runs share one.
+    required: false
+    default: "rossi"
+  upload-sarif:
+    description: >-
+      Upload the SARIF report to code scanning. Off by default: it needs
+      `security-events: write`, which a pull request from a fork cannot be
+      granted. Pull requests from a fork are skipped automatically even when
+      this is on; pull requests raised inside a fork are not.
+    required: false
+    default: "false"
+  working-directory:
+    description: Directory to run rossi in. `path` is relative to it.
+    required: false
+    default: "."
+  fail-on-error:
+    description: >-
+      Fail the step when rossi reports a failure. Turn it off to collect
+      findings without gating the workflow.
+    required: false
+    default: "true"
+
+outputs:
+  valid:
+    description: '"true" when rossi reported no failures.'
+    value: ${{ steps.rossi.outputs.valid }}
+  error-count:
+    description: Number of error-severity findings.
+    value: ${{ steps.rossi.outputs.error-count }}
+  warning-count:
+    description: Number of advisory findings.
+    value: ${{ steps.rossi.outputs.warning-count }}
+  sarif-file:
+    description: Path to the SARIF report, empty when `sarif` was off.
+    value: ${{ steps.rossi.outputs.sarif-file }}
+  rossi-version:
+    description: The rossi version that ran.
+    value: ${{ steps.rossi.outputs.rossi-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install rossi
+      if: inputs.rossi-path == ''
+      shell: bash
+      env:
+        ROSSI_VERSION: ${{ inputs.version }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/install-rossi.sh"
+
+    - name: Run rossi
+      id: rossi
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        ROSSI: ${{ inputs.rossi-path || 'rossi' }}
+        ROSSI_PATHS: ${{ inputs.path }}
+        ROSSI_COMMANDS: ${{ inputs.commands }}
+        ROSSI_DENY_WARNINGS: ${{ inputs.deny-warnings == 'true' }}
+        ROSSI_ANNOTATIONS: ${{ inputs.annotations == 'true' }}
+        ROSSI_SARIF: ${{ inputs.sarif == 'true' }}
+        ROSSI_SARIF_FILE: ${{ inputs.sarif-file }}
+        ROSSI_CATEGORY: ${{ inputs.category }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/run-rossi.sh"
+
+    # Runs whatever the findings were — the point is to publish them when the
+    # gate fails. Skipped on a pull request *from* a fork, which cannot be
+    # granted `security-events: write`; a fork's own pull requests can.
+    - name: Upload SARIF to code scanning
+      if: >-
+        inputs.upload-sarif == 'true'
+        && steps.rossi.outputs.sarif-file != ''
+        && (github.event.pull_request.head.repo.full_name == null
+            || github.event.pull_request.head.repo.full_name == github.repository)
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: ${{ inputs.working-directory }}/${{ steps.rossi.outputs.sarif-file }}
+        category: ${{ inputs.category }}
+
+    - name: Fail on rossi findings
+      if: inputs.fail-on-error == 'true' && steps.rossi.outputs.valid != 'true'
+      shell: bash
+      env:
+        ERRORS: ${{ steps.rossi.outputs.error-count }}
+        WARNINGS: ${{ steps.rossi.outputs.warning-count }}
+      run: |
+        echo "rossi reported ${ERRORS} error(s) and ${WARNINGS} advisory finding(s)"
+        exit 1

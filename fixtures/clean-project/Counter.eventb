@@ -1,0 +1,22 @@
+MACHINE Counter
+SEES
+    Bounds
+VARIABLES
+    count
+INVARIANTS
+    @inv1 count ∈ ℕ
+    @inv2 count ≤ limit
+EVENTS
+    EVENT INITIALISATION
+    THEN
+        @act1 count ≔ 0
+    END
+
+    EVENT tick
+    WHERE
+        @grd1 count < limit
+    THEN
+        @act1 count ≔ count + 1
+    END
+END
+
